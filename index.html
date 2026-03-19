@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Antenna Align Pro</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-rotate@0.1.4/dist/leaflet-rotate.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <style>
+        :root {
+            --bg:      #060a14;
+            --surface: rgba(8,14,28,0.88);
+            --accent:  #00c8ff;
+            --accent2: #0055ff;
+            --green:   #00e87a;
+            --red:     #ff3b47;
+            --text:    #c8daf0;
+            --text2:   #3a5070;
+            --border:  rgba(0,200,255,0.13);
+            --border2: rgba(0,200,255,0.30);
+            --mono:    'JetBrains Mono', monospace;
+            --ui:      'Rajdhani', sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+        html, body {
+            height: 100vh; width: 100vw;
+            overflow: hidden;
+            background: var(--bg);
+            font-family: var(--mono);
+            touch-action: none;
+        }
+
+        .main-container {
+            display: flex; flex-direction: column;
+            height: 100vh; width: 100vw;
+        }
+
+        /* ── CAMERA ── */
+        .camera-section {
+            position: relative;
+            width: 100%; height: 50%;
+            background: #000; overflow: hidden;
+        }
+
+        #camera-video {
+            width: 100%; height: 100%;
+            object-fit: cover; display: block;
+        }
+
+        /* Vignette */
+        .camera-section::after {
+            content: '';
+            position: absolute; inset: 0;
+            background: radial-gradient(ellipse at center, transparent 48%, rgba(6,10,20,.65) 100%);
+            pointer-events: none; z-index: 3;
+        }
+
+        /* Corner brackets */
+        .bracket { position: absolute; width: 18px; height: 18px; border-color: var(--accent); border-style: solid; opacity: .55; z-index: 10; }
+        .bracket.tl { top: 9px; left: 9px;  border-width: 1.5px 0 0 1.5px; }
+        .bracket.tr { top: 9px; right: 9px;  border-width: 1.5px 1.5px 0 0; }
+        .bracket.bl { bottom: 9px; left: 9px; border-width: 0 0 1.5px 1.5px; }
+        .bracket.br { bottom: 9px; right: 9px; border-width: 0 1.5px 1.5px 0; }
+
+        /* ── GLASS ── */
+        .glass {
+            background: var(--surface);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+        }
+
+        /* ── COORDS ── */
+        .camera-coords {
+            position: absolute; top: 10px; left: 10px;
+            z-index: 20; padding: 8px 12px;
+            display: flex; flex-direction: column; gap: 4px;
+        }
+        .coord-row { display: flex; align-items: center; gap: 7px; }
+        .coord-label { color: var(--text2); font-size: 9px; letter-spacing: 1.5px; min-width: 26px; text-transform: uppercase; }
+        .coord-value { color: var(--accent); font-size: 11px; font-weight: 500; }
+
+        .gps-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text2); margin-left: 2px; flex-shrink: 0; }
+        .gps-dot.active { background: var(--green); box-shadow: 0 0 5px var(--green); animation: gpsblink 1.8s ease-in-out infinite; }
+        @keyframes gpsblink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+        /* ── SETTINGS BTN ── */
+        .settings-btn-dots {
+            position: absolute; top: 10px; right: 10px;
+            z-index: 30; width: 34px; height: 34px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; color: var(--accent); font-size: 14px;
+            transition: transform .2s;
+        }
+        .settings-btn-dots:active { transform: scale(.88); }
+
+        /* ── AZIMUTH ── */
+        .camera-azimuth {
+            position: absolute; top: 52px; right: 10px;
+            z-index: 20; padding: 6px 11px;
+            display: flex; align-items: center; gap: 7px;
+        }
+        .camera-azimuth i { color: var(--accent2); font-size: 11px; }
+        .camera-azimuth input {
+            background: transparent; border: none;
+            color: var(--accent); font-size: 15px;
+            font-family: var(--mono); font-weight: 500;
+            width: 50px; text-align: center; outline: none;
+        }
+        .camera-azimuth input::-webkit-outer-spin-button,
+        .camera-azimuth input::-webkit-inner-spin-button { -webkit-appearance: none; }
+        .camera-azimuth input[type=number] { -moz-appearance: textfield; }
+        .camera-azimuth span { color: var(--text2); font-size: 11px; }
+        .camera-azimuth button {
+            background: linear-gradient(135deg, var(--accent2), var(--accent));
+            border: none; color: #fff;
+            padding: 4px 11px; border-radius: 6px;
+            font-size: 10px; font-family: var(--ui); font-weight: 700;
+            letter-spacing: .8px; cursor: pointer; transition: opacity .2s;
+        }
+        .camera-azimuth button:active { opacity: .7; }
+
+        /* ── VISEUR ── */
+        .camera-arrow-fixed {
+            position: absolute;
+            top: 65%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10; pointer-events: none;
+        }
+        #viseur-canvas {
+            display: block;
+            width: min(90vw, 400px);
+            height: min(90vw, 400px);
+        }
+
+        /* ── SITE BAR ── */
+        .camera-site-info {
+            position: absolute; bottom: 5px; left: 50%;
+            transform: translateX(-50%);
+            z-index: 20; padding: 5px 20px;
+            display: flex; align-items: center; gap: 15px;
+            white-space: nowrap; font-size: 15px; font-weight: 600;
+            color: white; border: 1px solid var(--border2);
+        }
+        .camera-site-info input[type="text"],
+        .camera-site-info select {
+            background: transparent; border: none; color: white;
+            font-size: 15px; width: 80px; text-align: center;
+            outline: none; font-weight: 600;
+        }
+        .camera-site-info select { color: var(--accent); width: 70px; }
+        .camera-site-info option { background: #0a0e1c; }
+
+        /* ── RECORD BTN ── */
+        .record-btn {
+            position: absolute; bottom: 5px; right: 10px;
+            z-index: 30; width: 44px; height: 44px; border-radius: 50%;
+            background: rgba(255,59,71,.1);
+            border: 2px solid rgba(255,255,255,.8);
+            cursor: pointer; transition: all .2s;
+            display: flex; align-items: center; justify-content: center;
+            backdrop-filter: blur(10px);
+        }
+        .record-btn::before {
+            content: ''; width: 18px; height: 18px;
+            background: white; border-radius: 3px;
+        }
+        .record-btn:active { transform: scale(.9); }
+
+        /* ── LOADING ── */
+        .loading-overlay {
+            position: absolute; inset: 0; background: var(--bg);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center; z-index: 100;
+        }
+        .loading-spinner {
+            width: 44px; height: 44px;
+            border: 2px solid rgba(0,200,255,.1);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin .85s linear infinite; margin-bottom: 14px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-overlay p { font-size: 10px; color: var(--text2); letter-spacing: 2px; }
+        .hidden { display: none !important; }
+
+        /* ── MAP ── */
+        .map-section { position: relative; width: 100%; height: 50%; background: #080e1c; }
+        #map { width: 100%; height: 100%; }
+
+        #capture-canvas {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 2000; pointer-events: none; display: none;
+        }
+
+        .locate-btn-map {
+            position: absolute; top: 50%; right: 15px;
+            transform: translateY(-50%); z-index: 1000;
+            width: 36px; height: 36px; border-radius: 50%;
+            background: rgba(0,85,255,.9);
+            border: 2px solid rgba(255,255,255,.7);
+            color: white; font-size: 14px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.4);
+            transition: all .25s;
+        }
+        .locate-btn-map:active { transform: translateY(-50%) scale(.9); }
+
+        /* ── LEAFLET ── */
+        .leaflet-control-zoom { display: none !important; }
+        .leaflet-control-attribution { display: none !important; }
+        .leaflet-layer { filter: brightness(.82) saturate(1.1); }
+
+        /* ── MODAL ── */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,.82); backdrop-filter: blur(14px);
+            z-index: 2000; justify-content: center; align-items: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-content {
+            background: #080e1c; border: 1px solid var(--border2);
+            width: 90%; max-width: 400px; border-radius: 18px;
+            overflow: hidden; max-height: 85vh; overflow-y: auto;
+        }
+        .modal-header {
+            padding: 18px 20px; border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
+            position: sticky; top: 0; background: #080e1c; z-index: 1;
+        }
+        .modal-header h3 {
+            color: var(--text); font-family: var(--ui);
+            font-size: 13px; font-weight: 700; letter-spacing: 2px;
+        }
+        .modal-close {
+            background: rgba(255,59,71,.1); border: 1px solid rgba(255,59,71,.25);
+            color: var(--red); width: 29px; height: 29px; border-radius: 50%;
+            cursor: pointer; font-size: 13px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .setting-group { padding: 15px 20px; border-bottom: 1px solid var(--border); }
+        .setting-label { color: var(--text2); font-size: 9px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; }
+        .setting-options { display: flex; gap: 8px; }
+        .option-btn {
+            flex: 1; padding: 10px;
+            background: rgba(255,255,255,.03); border: 1px solid var(--border);
+            border-radius: 8px; color: var(--text2); cursor: pointer;
+            text-align: center; font-size: 12px; font-family: var(--mono);
+            transition: all .22s;
+        }
+        .option-btn.active { background: rgba(0,85,255,.18); border-color: var(--accent2); color: var(--accent); }
+        .input-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+        .input-group:last-child { margin-bottom: 0; }
+        .input-group label { color: var(--text2); font-size: 9px; text-transform: uppercase; letter-spacing: 2px; }
+        .input-group input {
+            background: rgba(255,255,255,.04); border: 1px solid var(--border);
+            border-radius: 8px; padding: 9px 13px; color: var(--text);
+            font-size: 13px; font-family: var(--mono); outline: none; transition: border-color .2s;
+        }
+        .input-group input:focus { border-color: var(--accent2); }
+        .checkbox-group { flex-direction: row; align-items: center; gap: 8px; }
+        .checkbox-group input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent2); }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+
+        <!-- CAMERA -->
+        <div class="camera-section" id="camera-section">
+            <div class="loading-overlay" id="camera-loading">
+                <div class="loading-spinner"></div>
+                <p>INITIALIZING</p>
+            </div>
+            <video id="camera-video" autoplay playsinline muted></video>
+
+            <div class="bracket tl"></div>
+            <div class="bracket tr"></div>
+            <div class="bracket bl"></div>
+            <div class="bracket br"></div>
+
+            <button class="settings-btn-dots glass" id="btn-settings">
+                <i class="fas fa-ellipsis-v"></i>
+            </button>
+
+            <div class="camera-coords glass">
+                <div class="coord-row">
+                    <span class="coord-label">Lat</span>
+                    <span class="coord-value" id="cam-lat">--.------</span>
+                </div>
+                <div class="coord-row">
+                    <span class="coord-label">Lon</span>
+                    <span class="coord-value" id="cam-lon">--.------</span>
+                </div>
+                <div class="coord-row">
+                    <span class="coord-label">Alt</span>
+                    <span class="coord-value" id="cam-alt">--m</span>
+                    <div class="gps-dot" id="gps-dot"></div>
+                </div>
+            </div>
+
+            <div class="camera-azimuth glass">
+                <i class="fas fa-compass"></i>
+                <input type="number" id="input-azimuth" placeholder="0" min="0" max="360" step="0.1" value="0">
+                <span>°</span>
+                <button id="btn-set-bearing">OK</button>
+            </div>
+
+            <div class="camera-arrow-fixed">
+                <canvas id="viseur-canvas" width="400" height="400"></canvas>
+            </div>
+
+            <div class="camera-site-info glass">
+                <span>Site:</span>
+                <input type="text" id="input-site" placeholder="SiteA" value="SiteA">
+                <span>|</span>
+                <select id="input-sector">
+                    <option value="1">S1</option>
+                    <option value="2">S2</option>
+                    <option value="3">S3</option>
+                    <option value="4">S4</option>
+                </select>
+            </div>
+
+            <button class="record-btn" id="btn-capture" title="Capturer"></button>
+        </div>
+
+        <!-- MAP -->
+        <div class="map-section" id="map-section">
+            <div id="map"></div>
+            <canvas id="capture-canvas"></canvas>
+            <button class="locate-btn-map" id="btn-locate">
+                <i class="fas fa-crosshairs"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>PARAMÈTRES</h3>
+                <button class="modal-close" id="btn-close-settings"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="setting-group">
+                <div class="input-group">
+                    <label>Nom du Technicien</label>
+                    <input type="text" id="input-technician" placeholder="Entrez votre nom" value="">
+                </div>
+            </div>
+            <div class="setting-group">
+                <div class="input-group">
+                    <label>Nom du Client</label>
+                    <input type="text" id="input-client" placeholder="Entrez le nom du client" value="">
+                </div>
+            </div>
+            <div class="setting-group">
+                <div class="input-group checkbox-group">
+                    <label>Altitude manuelle (m)</label>
+                    <div style="display:flex;gap:9px;align-items:center">
+                        <input type="number" id="input-manual-alt" placeholder="ex: 150" step="0.1" style="flex:2">
+                        <label style="display:flex;align-items:center;gap:5px;color:var(--text2);font-size:11px;cursor:pointer;white-space:nowrap">
+                            <input type="checkbox" id="checkbox-use-manual-alt"> Utiliser
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="setting-group">
+                <label class="setting-label">Format des coordonnées</label>
+                <div class="setting-options">
+                    <button class="option-btn coord-format active" data-format="dec">Décimal</button>
+                    <button class="option-btn coord-format" data-format="dms">DMS</button>
+                </div>
+            </div>
+            <div class="setting-group">
+                <label class="setting-label">Type de rapport</label>
+                <div class="setting-options">
+                    <button class="option-btn report-type active" data-type="jpeg">Image JPEG</button>
+                    <button class="option-btn report-type" data-type="pdf">PDF</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-rotate@0.1.4/dist/leaflet-rotate.js"></script>
+
+    <script>
+        const App = {
+            state: {
+                siteLat: null, siteLon: null, siteAltitude: null,
+                gpsLat: null, gpsLon: null, gpsAltitude: null,
+                accuracy: 0.5,
+                targetAzimuth: 0,
+                siteName: 'SiteA', sector: '1',
+                technicianName: '', clientName: '',
+                manualAltitude: '', useManualAltitude: false,
+                settings: { coordFormat: 'dec', reportType: 'jpeg' }
+            },
+            elements: {},
+            map: null,
+            siteMarker: null, userMarker: null, bearingLine: null,
+            watchId: null,
+            captureCanvas: null
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            cacheElements();
+            initCamera();
+            initMap();
+            initGPS();
+            bindEvents();
+            loadSettings();
+            drawViseur();
+        });
+
+        function cacheElements() {
+            App.elements = {
+                video: document.getElementById('camera-video'),
+                loading: document.getElementById('camera-loading'),
+                camLat: document.getElementById('cam-lat'),
+                camLon: document.getElementById('cam-lon'),
+                camAlt: document.getElementById('cam-alt'),
+                gpsDot: document.getElementById('gps-dot'),
+                siteInput: document.getElementById('input-site'),
+                sectorInput: document.getElementById('input-sector'),
+                azimuthInput: document.getElementById('input-azimuth'),
+                azimuthButton: document.getElementById('btn-set-bearing'),
+                technicianInput: document.getElementById('input-technician'),
+                clientInput: document.getElementById('input-client'),
+                manualAltInput: document.getElementById('input-manual-alt'),
+                useManualAltCheck: document.getElementById('checkbox-use-manual-alt'),
+                settingsModal: document.getElementById('settings-modal'),
+                cameraSection: document.getElementById('camera-section'),
+                mapSection: document.getElementById('map-section'),
+                viseurCanvas: document.getElementById('viseur-canvas'),
+                captureCanvas: document.getElementById('capture-canvas')
+            };
+        }
+
+        // ── VISEUR ──
+        // الـ canvas حجمه ثابت 400x400 دائماً
+        // CSS فقط يتحكم في الحجم المرئي
+        // لا يُستدعى drawViseur إلا مرة واحدة عند البداية
+        function drawViseur() {
+            const canvas = App.elements.viseurCanvas;
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const W = 400, cx = 200, cy = 200, R = 160;
+            ctx.clearRect(0, 0, W, W);
+
+            // Outer arc
+            ctx.beginPath();
+            ctx.arc(cx, cy, R, Math.PI, 0, false);
+            ctx.strokeStyle = 'rgba(0,200,255,.5)';
+            ctx.lineWidth = 2; ctx.stroke();
+
+            // Inner arc
+            ctx.beginPath();
+            ctx.arc(cx, cy, R * .88, Math.PI, 0, false);
+            ctx.strokeStyle = 'rgba(0,200,255,.1)';
+            ctx.lineWidth = 1; ctx.stroke();
+
+            // Base line
+            ctx.beginPath();
+            ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy);
+            ctx.strokeStyle = 'rgba(0,200,255,.18)'; ctx.lineWidth = 1; ctx.stroke();
+
+            // Ticks & labels
+            for (let d = -90; d <= 90; d += 10) {
+                const a = (90 - d) * Math.PI / 180;
+                const major = d % 30 === 0;
+                const len = major ? 14 : 7;
+                ctx.beginPath();
+                ctx.moveTo(cx + (R - len) * Math.cos(a), cy - (R - len) * Math.sin(a));
+                ctx.lineTo(cx + R * Math.cos(a), cy - R * Math.sin(a));
+                ctx.strokeStyle = major ? 'rgba(0,200,255,.85)' : 'rgba(0,200,255,.25)';
+                ctx.lineWidth = major ? 2 : 1; ctx.stroke();
+                if (major) {
+                    ctx.font = '500 14px JetBrains Mono, monospace';
+                    ctx.fillStyle = 'rgba(0,200,255,.7)'; ctx.textAlign = 'center';
+                    ctx.shadowColor = 'black'; ctx.shadowBlur = 4;
+                    ctx.fillText(d + '°', cx + (R - 28) * Math.cos(a), cy - (R - 28) * Math.sin(a) + 5);
+                    ctx.shadowBlur = 0;
+                }
+            }
+
+            // Green line
+            const py = cy + R * 0.15;
+            const grad = ctx.createLinearGradient(cx, py, cx, cy - R * .83);
+            grad.addColorStop(0, 'rgba(0,232,122,.95)');
+            grad.addColorStop(1, 'rgba(0,232,122,.08)');
+            ctx.beginPath(); ctx.moveTo(cx, py); ctx.lineTo(cx, cy - R * .83);
+            ctx.strokeStyle = grad; ctx.lineWidth = 5; ctx.lineCap = 'round';
+            ctx.shadowColor = '#00e87a'; ctx.shadowBlur = 10;
+            ctx.stroke(); ctx.shadowBlur = 0;
+
+            // Center dot
+            ctx.beginPath(); ctx.arc(cx, py, 8, 0, Math.PI * 2);
+            ctx.fillStyle = '#00c8ff'; ctx.fill();
+            ctx.beginPath(); ctx.arc(cx, py, 13, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(0,200,255,.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+
+        // ── ELEVATION API ──
+        async function fetchElevation(lat, lon) {
+            try {
+                const url = `https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lon}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                if (data && data.results && data.results.length > 0) {
+                    return data.results[0].elevation;
+                }
+            } catch (err) { console.warn("Erreur altitude:", err); }
+            return null;
+        }
+
+        // ── CAMERA ──
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: 'environment' } }, audio: false
+                });
+                App.elements.video.srcObject = stream;
+                App.elements.video.onloadedmetadata = () => {
+                    App.elements.loading.classList.add('hidden');
+                    App.elements.video.play();
+                };
+            } catch (err) {
+                App.elements.loading.innerHTML = `
+                    <p style="color:#ff3b47;font-size:11px;letter-spacing:1px;text-align:center;padding:20px">
+                        CAMERA BLOCKED<br><span style="color:var(--text2);font-size:9px">${err.message}</span>
+                    </p>
+                    <button onclick="location.reload()" style="margin-top:16px;padding:10px 22px;background:#0055ff;border:none;border-radius:8px;color:#fff;font-family:'Rajdhani',sans-serif;font-weight:700;cursor:pointer">RETRY</button>`;
+            }
+        }
+
+        // ── MAP ──
+        function initMap() {
+            const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles © Esri', maxZoom: 19
+            });
+            App.map = L.map('map', {
+                layers: [satellite], center: [48.8566, 2.3522], zoom: 16,
+                rotate: true, rotateControl: false, touchRotate: true,
+                touchZoom: true, dragging: true
+            });
+            try { App.map.touchRotate.enable(); } catch(e) {}
+            App.map.on('click', (e) => setSiteLocation(e.latlng));
+        }
+
+        async function setSiteLocation(latlng) {
+            if (App.siteMarker) App.map.removeLayer(App.siteMarker);
+            App.siteMarker = L.marker(latlng, {
+                icon: L.divIcon({
+                    className: 'site-marker',
+                    html: '<div style="width:16px;height:16px;background:#0055ff;border:2px solid white;border-radius:50%;box-shadow:0 0 10px rgba(0,85,255,.9)"></div>',
+                    iconSize: [16, 16], iconAnchor: [8, 8]
+                })
+            }).addTo(App.map);
+            App.state.siteLat = latlng.lat;
+            App.state.siteLon = latlng.lng;
+            const elevation = await fetchElevation(latlng.lat, latlng.lng);
+            App.state.siteAltitude = elevation !== null ? elevation : null;
+            updateDisplay();
+            drawBearingLine(latlng);
+        }
+
+        function drawBearingLine(center) {
+            if (!center) return;
+            if (App.bearingLine) App.map.removeLayer(App.bearingLine);
+            const azimuth = App.state.targetAzimuth;
+            if (isNaN(azimuth)) return;
+            const distance = 1.0, R = 6371;
+            const bearing = azimuth * Math.PI / 180;
+            const lat1 = center.lat * Math.PI / 180, lon1 = center.lng * Math.PI / 180;
+            const lat2 = Math.asin(Math.sin(lat1)*Math.cos(distance/R)+Math.cos(lat1)*Math.sin(distance/R)*Math.cos(bearing));
+            const lon2 = lon1 + Math.atan2(Math.sin(bearing)*Math.sin(distance/R)*Math.cos(lat1),Math.cos(distance/R)-Math.sin(lat1)*Math.sin(lat2));
+            const end = L.latLng(lat2*180/Math.PI, lon2*180/Math.PI);
+            App.bearingLine = L.polyline([center, end], {
+                color: '#ff3b47', weight: 5, opacity: .95,
+                lineCap: 'round', dashArray: '10 5'
+            }).addTo(App.map);
+        }
+
+        // ── GPS ──
+        function initGPS() {
+            if (!navigator.geolocation) return;
+            App.watchId = navigator.geolocation.watchPosition(
+                (pos) => {
+                    App.state.gpsLat = pos.coords.latitude;
+                    App.state.gpsLon = pos.coords.longitude;
+                    App.state.gpsAltitude = pos.coords.altitude;
+                    App.elements.gpsDot.classList.add('active');
+                    if (App.userMarker) {
+                        App.userMarker.setLatLng([App.state.gpsLat, App.state.gpsLon]);
+                    } else {
+                        App.userMarker = L.circleMarker([App.state.gpsLat, App.state.gpsLon], {
+                            radius: 7, color: '#00c8ff', fillColor: '#00c8ff', fillOpacity: .85, weight: 2
+                        }).addTo(App.map);
+                    }
+                    updateDisplay();
+                },
+                (err) => console.warn(err),
+                { enableHighAccuracy: true, maximumAge: 5000 }
+            );
+        }
+
+        function updateDisplay() {
+            let lat, lon, alt;
+            if (App.state.siteLat !== null) {
+                lat = App.state.siteLat; lon = App.state.siteLon; alt = App.state.siteAltitude;
+            } else if (App.state.gpsLat !== null) {
+                lat = App.state.gpsLat; lon = App.state.gpsLon; alt = App.state.gpsAltitude;
+            } else return;
+            const fmt = App.state.settings.coordFormat;
+            App.elements.camLat.textContent = fmt === 'dec' ? lat.toFixed(6) : toDMS(lat, true);
+            App.elements.camLon.textContent = fmt === 'dec' ? lon.toFixed(6) : toDMS(lon, false);
+            let altDisplay = '--m';
+            if (App.state.useManualAltitude && App.state.manualAltitude && !isNaN(parseFloat(App.state.manualAltitude))) {
+                altDisplay = parseFloat(App.state.manualAltitude).toFixed(1) + 'm (manuelle)';
+            } else if (alt !== null && !isNaN(alt)) {
+                altDisplay = alt.toFixed(1) + 'm';
+            }
+            App.elements.camAlt.textContent = altDisplay;
+        }
+
+        function toDMS(coord, isLat) {
+            const abs = Math.abs(coord);
+            const d = Math.floor(abs), m = Math.floor((abs - d) * 60);
+            const s = ((abs - d - m/60) * 3600).toFixed(1);
+            const dir = isLat ? (coord >= 0 ? 'N' : 'S') : (coord >= 0 ? 'E' : 'W');
+            return `${d}°${m}'${s}"${dir}`;
+        }
+
+        // ── AZIMUTH ── (ne redessine PAS le viseur)
+        function setTargetAzimuth() {
+            const val = App.elements.azimuthInput.value;
+            if (!val) return;
+            App.state.targetAzimuth = parseFloat(val);
+            if (App.siteMarker) drawBearingLine(App.siteMarker.getLatLng());
+        }
+
+        // ── CAPTURE PDF (identique à l'original) ──
+        async function drawLineOnCanvasForCapture() {
+            return new Promise((resolve) => {
+                if (!App.siteMarker) { resolve(null); return; }
+                const center = App.siteMarker.getLatLng();
+                const azimuth = App.state.targetAzimuth;
+                if (isNaN(azimuth)) { resolve(null); return; }
+                const distance = 1.0, R = 6371;
+                const bearing = azimuth * Math.PI / 180;
+                const lat1 = center.lat * Math.PI / 180, lon1 = center.lng * Math.PI / 180;
+                const lat2 = Math.asin(Math.sin(lat1)*Math.cos(distance/R)+Math.cos(lat1)*Math.sin(distance/R)*Math.cos(bearing));
+                const lon2 = lon1 + Math.atan2(Math.sin(bearing)*Math.sin(distance/R)*Math.cos(lat1),Math.cos(distance/R)-Math.sin(lat1)*Math.sin(lat2));
+                const end = L.latLng(lat2*180/Math.PI, lon2*180/Math.PI);
+                const startPoint = App.map.latLngToContainerPoint(center);
+                const endPoint = App.map.latLngToContainerPoint(end);
+                const canvas = App.elements.captureCanvas;
+                const rect = App.elements.mapSection.getBoundingClientRect();
+                canvas.width = rect.width; canvas.height = rect.height;
+                canvas.style.width = rect.width + 'px'; canvas.style.height = rect.height + 'px';
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.beginPath();
+                ctx.moveTo(startPoint.x, startPoint.y);
+                ctx.lineTo(endPoint.x, endPoint.y);
+                ctx.strokeStyle = '#FF3B30'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+                ctx.stroke();
+                canvas.style.display = 'block';
+                setTimeout(() => resolve(canvas), 100);
+            });
+        }
+
+        async function captureForPDF() {
+            try {
+                const lineCanvas = await drawLineOnCanvasForCapture();
+                if (App.bearingLine) App.map.removeLayer(App.bearingLine);
+                App.map.invalidateSize();
+                await new Promise(r => setTimeout(r, 300));
+                const mapCanvas = await html2canvas(App.elements.mapSection, {
+                    scale: 2, logging: false, allowTaint: true, useCORS: true,
+                    backgroundColor: '#1C1C1E',
+                    onclone: (clonedDoc) => {
+                        const cc = clonedDoc.getElementById('capture-canvas');
+                        if (cc) cc.style.display = 'block';
+                    }
+                });
+                if (App.siteMarker) drawBearingLine(App.siteMarker.getLatLng());
+                if (lineCanvas) lineCanvas.style.display = 'none';
+                const cameraCanvas = await html2canvas(App.elements.cameraSection, {
+                    scale: 2, logging: false, allowTaint: true, useCORS: true,
+                    backgroundColor: '#000'
+                });
+                return { cameraCanvas, mapCanvas };
+            } catch (err) {
+                if (App.siteMarker) drawBearingLine(App.siteMarker.getLatLng());
+                throw err;
+            }
+        }
+
+        function generateQRCode() {
+            const qrContainer = document.createElement('div');
+            qrContainer.id = 'qrcode'; qrContainer.style.display = 'none';
+            document.body.appendChild(qrContainer);
+            new QRCode(qrContainer, {
+                text: "https://www.smartsite-telecom.com",
+                width: 60, height: 60,
+                colorDark: "#000000", colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
+            });
+            return qrContainer;
+        }
+
+        async function generateProfessionalPDF() {
+            try {
+                const { cameraCanvas, mapCanvas } = await captureForPDF();
+                const qrContainer = generateQRCode();
+                await new Promise(r => setTimeout(r, 500));
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                const pageWidth = pdf.internal.pageSize.getWidth();
+                const pageHeight = pdf.internal.pageSize.getHeight();
+                const margin = 15;
+                const reportTitle = `${App.state.siteName}_S${App.state.sector}_${App.state.targetAzimuth}°`;
+                pdf.setFillColor(0, 122, 255);
+                pdf.rect(0, 0, pageWidth, 30, 'F');
+                pdf.setTextColor(255, 255, 255);
+                pdf.setFontSize(20); pdf.setFont('helvetica', 'bold');
+                pdf.text(reportTitle, pageWidth / 2, 18, { align: 'center' });
+                pdf.setFontSize(10); pdf.setFont('helvetica', 'normal');
+                pdf.text("Rapport d'Installation et Alignement Antenne", pageWidth / 2, 26, { align: 'center' });
+                pdf.setTextColor(100, 100, 100); pdf.setFontSize(10);
+                const dateStr = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                pdf.text(`Date: ${dateStr}`, margin, 40);
+                pdf.setFillColor(240, 248, 255);
+                pdf.roundedRect(margin, 45, pageWidth - 2 * margin, 38, 3, 3, 'F');
+                pdf.setTextColor(0, 122, 255); pdf.setFontSize(12); pdf.setFont('helvetica', 'bold');
+                pdf.text('DONNÉES TECHNIQUES', margin + 5, 53);
+                pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10); pdf.setTextColor(50, 50, 50);
+                const infoY = 60;
+                const col1X = margin + 5, col2X = pageWidth / 2, col3X = pageWidth - margin - 5;
+                pdf.text(`Site: ${App.state.siteName}`, col1X, infoY);
+                pdf.text(`Secteur: S${App.state.sector}`, col2X, infoY);
+                pdf.text(`Azimut: ${App.state.targetAzimuth}°`, col3X, infoY, { align: 'right' });
+                const displayLat = App.state.siteLat !== null ? App.state.siteLat : App.state.gpsLat;
+                const displayLon = App.state.siteLon !== null ? App.state.siteLon : App.state.gpsLon;
+                const displayAlt = App.state.siteAltitude !== null ? App.state.siteAltitude : App.state.gpsAltitude;
+                let latStr, lonStr, altStr;
+                if (displayLat) {
+                    if (App.state.settings.coordFormat === 'dec') {
+                        latStr = displayLat.toFixed(6) + '°'; lonStr = displayLon.toFixed(6) + '°';
+                    } else { latStr = toDMS(displayLat, true); lonStr = toDMS(displayLon, false); }
+                    if (App.state.useManualAltitude && App.state.manualAltitude && !isNaN(parseFloat(App.state.manualAltitude))) {
+                        altStr = parseFloat(App.state.manualAltitude).toFixed(1) + 'm (manuelle)';
+                    } else if (displayAlt) { altStr = displayAlt.toFixed(1) + 'm'; } else { altStr = 'N/A'; }
+                } else { latStr = 'Non défini'; lonStr = 'Non défini'; altStr = 'N/A'; }
+                pdf.text(`Lat: ${latStr}`, col1X, infoY + 7);
+                pdf.text(`Lon: ${lonStr}`, col2X, infoY + 7);
+                pdf.text(`Alt: ${altStr}`, col3X, infoY + 7, { align: 'right' });
+                pdf.setFontSize(8); pdf.setTextColor(100, 100, 100);
+                pdf.text('Précision: 0,5m (sélection manuelle sur carte satellite)', margin + 5, infoY + 15);
+                const imgY = 90;
+                const imgWidth = (pageWidth - 2 * margin - 5) / 2;
+                const cameraImgHeight = (cameraCanvas.height * imgWidth) / cameraCanvas.width;
+                const mapImgHeight = (mapCanvas.height * imgWidth) / mapCanvas.width;
+                pdf.setTextColor(0, 122, 255); pdf.setFontSize(11); pdf.setFont('helvetica', 'bold');
+                pdf.text('1. VUE CAMÉRA - Alignement Visuel', margin, imgY - 3);
+                pdf.addImage(cameraCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', margin, imgY, imgWidth, cameraImgHeight);
+                pdf.text('2. VUE CARTE - Positionnement GPS', margin + imgWidth + 5, imgY - 3);
+                pdf.addImage(mapCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', margin + imgWidth + 5, imgY, imgWidth, mapImgHeight);
+                const notesY = Math.max(imgY + cameraImgHeight, imgY + mapImgHeight) + 8;
+                pdf.setFillColor(255, 248, 220);
+                pdf.roundedRect(margin, notesY, pageWidth - 2 * margin, 28, 3, 3, 'F');
+                pdf.setTextColor(139, 69, 19); pdf.setFontSize(11); pdf.setFont('helvetica', 'bold');
+                pdf.text('NOTES TECHNIQUES:', margin + 5, notesY + 7);
+                pdf.setFont('helvetica', 'normal'); pdf.setTextColor(80, 80, 80); pdf.setFontSize(9);
+                pdf.text(`• Alignement azimutal vérifié à ${App.state.targetAzimuth}°`, margin + 5, notesY + 14);
+                pdf.text('• Installation conforme aux normes', margin + 5, notesY + 20);
+                const qrY = pageHeight - 42;
+                const qrCanvas = qrContainer.querySelector('canvas');
+                if (qrCanvas) {
+                    const qrData = qrCanvas.toDataURL('image/png');
+                    const qrSize = 18, qrX = (pageWidth - qrSize) / 2;
+                    pdf.addImage(qrData, 'PNG', qrX, qrY, qrSize, qrSize);
+                    pdf.setTextColor(0, 122, 255); pdf.setFontSize(8);
+                    pdf.text('www.smartsite-telecom.com', pageWidth / 2, qrY + qrSize + 3, { align: 'center' });
+                }
+                const namesY = qrY - 8;
+                if (App.state.technicianName) {
+                    pdf.setTextColor(100, 100, 100); pdf.setFontSize(8);
+                    pdf.text('Technicien', margin, namesY - 2);
+                    pdf.setTextColor(50, 50, 50); pdf.setFontSize(10); pdf.setFont('helvetica', 'bold');
+                    pdf.text(App.state.technicianName, margin, namesY + 4);
+                }
+                if (App.state.clientName) {
+                    pdf.setTextColor(100, 100, 100); pdf.setFontSize(8); pdf.setFont('helvetica', 'normal');
+                    pdf.text('Client', pageWidth - margin, namesY - 2, { align: 'right' });
+                    pdf.setTextColor(50, 50, 50); pdf.setFontSize(10); pdf.setFont('helvetica', 'bold');
+                    pdf.text(App.state.clientName, pageWidth - margin, namesY + 4, { align: 'right' });
+                }
+                pdf.setDrawColor(200, 200, 200);
+                pdf.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+                pdf.setTextColor(150, 150, 150); pdf.setFontSize(8);
+                pdf.text('Document généré par Antenna Align Pro', pageWidth / 2, pageHeight - 6, { align: 'center' });
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                pdf.save(`${App.state.siteName}_S${App.state.sector}_${App.state.targetAzimuth}deg_${timestamp}.pdf`);
+                document.body.removeChild(qrContainer);
+                if (navigator.vibrate) navigator.vibrate(100);
+            } catch (err) { alert('Erreur génération PDF: ' + err.message); }
+        }
+
+        async function captureFullScreen() {
+            try {
+                if (App.state.settings.reportType === 'pdf') {
+                    await generateProfessionalPDF();
+                } else {
+                    const canvas = await html2canvas(document.body, {
+                        scale: 2, logging: false, allowTaint: true, useCORS: true
+                    });
+                    const link = document.createElement('a');
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                    link.download = `${App.state.siteName}_S${App.state.sector}_${timestamp}.jpg`;
+                    link.href = canvas.toDataURL('image/jpeg', 0.95);
+                    link.click();
+                    if (navigator.vibrate) navigator.vibrate(100);
+                }
+            } catch (err) { alert('Erreur capture: ' + err.message); }
+        }
+
+        // ── EVENTS ──
+        function bindEvents() {
+            App.elements.azimuthButton.addEventListener('click', setTargetAzimuth);
+            App.elements.azimuthInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') setTargetAzimuth(); });
+
+            document.getElementById('btn-locate').addEventListener('click', () => {
+                if (App.state.gpsLat) App.map.setView([App.state.gpsLat, App.state.gpsLon], 18);
+                else alert('Position GPS non disponible');
+            });
+
+            document.getElementById('btn-capture').addEventListener('click', captureFullScreen);
+
+            document.getElementById('btn-settings').addEventListener('click', () => App.elements.settingsModal.classList.add('active'));
+            document.getElementById('btn-close-settings').addEventListener('click', () => App.elements.settingsModal.classList.remove('active'));
+            App.elements.settingsModal.addEventListener('click', (e) => { if (e.target === App.elements.settingsModal) App.elements.settingsModal.classList.remove('active'); });
+
+            document.querySelectorAll('.coord-format').forEach(btn => btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.coord-format').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                App.state.settings.coordFormat = e.target.dataset.format;
+                updateDisplay(); saveSettings();
+            }));
+            document.querySelectorAll('.report-type').forEach(btn => btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.report-type').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                App.state.settings.reportType = e.target.dataset.type;
+                saveSettings();
+            }));
+
+            App.elements.technicianInput.addEventListener('input', (e) => { App.state.technicianName = e.target.value; saveSettings(); });
+            App.elements.clientInput.addEventListener('input', (e) => { App.state.clientName = e.target.value; saveSettings(); });
+            App.elements.manualAltInput.addEventListener('input', (e) => { App.state.manualAltitude = e.target.value; updateDisplay(); saveSettings(); });
+            App.elements.useManualAltCheck.addEventListener('change', (e) => { App.state.useManualAltitude = e.target.checked; updateDisplay(); saveSettings(); });
+            App.elements.siteInput.addEventListener('input', (e) => App.state.siteName = e.target.value);
+            App.elements.sectorInput.addEventListener('change', (e) => App.state.sector = e.target.value);
+        }
+
+        function saveSettings() {
+            try {
+                localStorage.setItem('antennaSettings', JSON.stringify({
+                    ...App.state.settings,
+                    technicianName: App.state.technicianName,
+                    clientName: App.state.clientName,
+                    manualAltitude: App.state.manualAltitude,
+                    useManualAltitude: App.state.useManualAltitude
+                }));
+            } catch(e) {}
+        }
+
+        function loadSettings() {
+            try {
+                const s = localStorage.getItem('antennaSettings');
+                if (!s) return;
+                const saved = JSON.parse(s);
+                App.state.settings.coordFormat = saved.coordFormat || 'dec';
+                App.state.settings.reportType = saved.reportType || 'jpeg';
+                App.state.technicianName = saved.technicianName || '';
+                App.state.clientName = saved.clientName || '';
+                App.state.manualAltitude = saved.manualAltitude || '';
+                App.state.useManualAltitude = saved.useManualAltitude || false;
+                App.elements.technicianInput.value = App.state.technicianName;
+                App.elements.clientInput.value = App.state.clientName;
+                App.elements.manualAltInput.value = App.state.manualAltitude;
+                App.elements.useManualAltCheck.checked = App.state.useManualAltitude;
+                document.querySelectorAll('.coord-format').forEach(b => { if (b.dataset.format === App.state.settings.coordFormat) b.classList.add('active'); });
+                document.querySelectorAll('.report-type').forEach(b => { if (b.dataset.type === App.state.settings.reportType) b.classList.add('active'); });
+                updateDisplay();
+            } catch(e) {}
+        }
+
+        window.addEventListener('beforeunload', () => {
+            if (App.watchId) navigator.geolocation.clearWatch(App.watchId);
+            if (App.elements.video && App.elements.video.srcObject)
+                App.elements.video.srcObject.getTracks().forEach(t => t.stop());
+        });
+    </script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js');
+        }
+    </script>
+</body>
+</html>
